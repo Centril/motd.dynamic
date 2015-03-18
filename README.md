@@ -19,7 +19,10 @@
 11. Internal hostname & IP.
 12. Apt upgrades reporting.
 
-Additionally, it provides a nice colorized banner made with `figlet` as well as something like: `fortune | cowsay`, but much more elegantly. 
+Additionally, it provides a nice colorized banner made with `figlet` as well as something like the following, but more elegantly and with colors:
+```shell
+fortune | cowsay
+```
 
 ## Installation
 
