@@ -1,0 +1,705 @@
+#!/usr/bin/env python
+#
+#	motd script written in python.
+#	Copyright (c) 2015 Mazdak Farrokhzad,
+#	Nick Charlton, Dustin Kirkland and Michael Vogt
+#
+#	Based on prior work by: Nick Charlton, Dustin Kirkland and Michael Vogt.
+#
+#	This program is free software; you can redistribute it and/or modify
+#	it under the terms of the GNU General Public License as published by
+#	the Free Software Foundation; either version 2 of the License, or
+#	(at your option) any later version.
+#
+#	This program is distributed in the hope that it will be useful,
+#	but WITHOUT ANY WARRANTY; without even the implied warranty of
+#	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#	GNU General Public License for more details.
+#
+#	You should have received a copy of the GNU General Public License along
+#	with this program; if not, write to the Free Software Foundation, Inc.,
+#	51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+"""
+console program for printing a motd on linux.
+edit the configurations to your liking.
+"""
+
+"""
+Configurations:
+"""
+
+# Set this to false when you're done - DEBUG disables HOST_IP_PUBLIC & APT_REPORT.
+DEBUG				=	False
+
+# Line length for tables & headers.
+LINE_LENGTH			=	73
+LEFT_COL_LENGTH		=	22
+
+# Figlet banner content:
+BANNER				=	'centrilnas'
+# Figlet banner fonts, randomized.
+BANNER_FONTS		=	['rozzo']
+# Newlines count before & after banner as well as at end of motd.
+BANNER_PAD_NL		=	1
+# Justification of banner, 0 for left, 1 for center, 2 for right.
+BANNER_JUSTIFY		=	1
+
+# Randomize a fortune, precendence over COWSAY_STATIC.
+COWSAY_FORTUNE		=	True
+# Use a static cowsay.
+COWSAY_STATIC		=	''
+# Mode? 0 => cowsay, 1 = cowthink, 2 = randomize both.
+COWSAY_MODE			=	2
+# List of cowsay animals to randomize from, or 'all' if all are allowed.
+# If you want the default animal, set it to 'default'
+# To see what animals are available, do: $ cowsay -l
+COWSAY_ANIMALS		=	'all'
+# Justification of cowsay, 0 for left, 1 for center, 2 for right.
+COWSAY_JUSTIFY		=	2
+
+# Various color settings, they are all semantic.
+# Color for OK status.
+COLOR_OK			=	'green'
+# Color for WARNING status.
+COLOR_WARN			=	'yellow'
+# Color for CRITICAL status.
+COLOR_CRITICAL		=	'red'
+# Banner color, more than one => banner will be a randomized "rainbow" of given colors:
+COLOR_BANNER		=	('yellow', 'cyan')
+# Cowsay color, more than one => cowsay will be a randomized "rainbow" of given colors:
+COLOR_COWSAY		=	('cyan', 'yellow', 'green', 'magenta')
+# Cowsay border color, more than one => border will be a randomized "rainbow" of given colors:
+COLOR_COWSAY_BORDER	=	'cyan'
+# Fortune text color.
+COLOR_FORTUNE		=	'white'
+# Color of table section headers.
+COLOR_HEADER		=	'yellow'
+# Color of table borders.
+COLOR_BORDERS		=	'cyan'
+# Color of left column colon separator.
+COLOR_COLUMN_LEFT	=	'magenta'
+# Color of other stuff.
+COLOR_NORMAL		=	'white'
+
+# When to use warning color for root usage (`df /`).
+ROOT_USAGE_WARN		=	60
+# When to use critical color for root usage (`df /`).
+ROOT_USAGE_CRITICAL	=	80
+
+# When to use warning color for memory usage %.
+MEM_USAGE_WARN		=	60
+# When to use critical color for memory usage %.
+MEM_USAGE_CRITICAL	=	80
+
+# Set to False if you don't want to get hostname & ip from ipgetter (external ip), can be a bit slow.
+HOST_IP_PUBLIC		=	True
+# Set to False if you don't want to use socket to retrieve hostname & ip (internal if behind an internal proxy).
+HOST_IP_FAST		=	True
+# The ip to test against, 8.8.8.8 is google DNS, assumes internet access.
+HOST_IP_FAST_TESTIP	=	('8.8.8.8', 80 )
+
+# Set to False if you think APT upgrades reporting takes too long.
+APT_REPORT			=	True
+# Set to False if you want apt_report not to display if no upgrades.
+APT_NONE_DISPLAY	=	True
+
+"""
+Coloring & display utilities:
+"""
+
+# Color definitions in xterm-256.
+colors = {x : 9 + i for i, x in enumerate( ('red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white') )}
+from texttable import bcolors
+bcolor_mappings = {
+	'green':	bcolors.GREEN,
+	'blue':		bcolors.BLUE,
+	'yellow':	bcolors.YELLOW,
+	'red':		bcolors.RED,
+	'magenta':	bcolors.PURPLE,
+	'white':	bcolors.WHITE
+}
+
+def color_ins( text, c ):
+	return "\033[{0}m{1}\033[0m".format( c, text )
+
+def colored( msg, color = COLOR_NORMAL, b = False ):
+	''' Returns colorized msg. '''
+	b = '1;' if b else ''
+	c = color_ins( msg, b + '38;05;' + str( colors.get( color ) ) )
+	return c
+
+def bcolor( msg, color ):
+	''' Translates from colored to bcolor, they are not 100% compatible.
+		Cyan is for example missing.
+	'''
+	from texttable import get_color_string
+	picked = bcolor_mappings.get( color, -1 )
+	return colored( msg, color ) if picked == -1 else get_color_string( msg, picked )
+
+def p( msg, color = COLOR_NORMAL, b = False ):
+	''' Color prints but does expandtabs on message first. '''
+	print colored( msg.expandtabs(), color, b )
+
+def critical( msg ):
+	''' Returns text notifying a critical message. '''
+	return bcolor( msg, COLOR_CRITICAL )
+
+def critical_if( msg, cond, otherwise = COLOR_NORMAL ):
+	''' Returns text notifying a critical message if cond holds, otherwise with normal color. '''
+	return bcolor( msg, COLOR_CRITICAL if cond else otherwise )
+
+def warn( msg ):
+	''' Returns text notifying a warning message if cond holds. '''
+	return bcolor( msg, COLOR_WARN )
+
+def warn_if( msg, cond, otherwise = COLOR_NORMAL ):
+	''' Returns text notifying a warning message if cond holds, otherwise with normal color. '''
+	return bcolor( msg, COLOR_WARN if cond else otherwise )
+
+def ok_warn_crit( msg, level, thresh ):
+	''' Returns text notifying: critical if second threshold is met, warning if first threshold is met, otherwise ok. '''
+	return critical( msg ) if level > thresh[1] else warn_if( msg, level > thresh[0], COLOR_OK )
+
+def header( title ):
+	''' Prints a header. '''
+	from operator import xor
+	from itertools import repeat
+
+	title = ' ' + title + ' '
+
+	def pad( left = True, adjust = 0 ):
+		''' Returns a colored padding. '''
+		c = ('', ':') if left else (':', '')
+		pad = ''.join( repeat( '+', ceil_div( LINE_LENGTH - 2 - len( title ), 2 ) - adjust ) )
+		return colored( c[0] + pad + c[1], COLOR_BORDERS )
+
+	# Compute right adjustment.
+	right_adjust = 1 if xor( len( title ) % 2, LINE_LENGTH % 2 ) else 0
+
+	# Return the header.
+	p( pad() + colored( title, COLOR_HEADER ) + pad( False, right_adjust ) )
+
+def table( head, jobs, rows ):
+	''' Prints a table. '''
+	from texttable import Texttable
+	from inspect import isfunction
+
+	# Get rows from jobs if it is a job.
+	rows = jobs.out( rows )
+
+	# Need rows, if none, don't print table.
+	if not rows: return
+
+	# Output a header.
+	header( head )
+
+	# Create table with some configs.
+	table = Texttable()
+	table.set_deco( 0 )
+	table.set_cols_width( (LEFT_COL_LENGTH, LINE_LENGTH - (LEFT_COL_LENGTH + 6)) )
+	table.set_cols_dtype( ('t', 't') )
+	table.set_cols_align( ('r', 'l') )
+	table.set_cols_valign( ('m', 'm') )
+
+	# Provide a left-right column separator only if
+	# left column is non-empty for some row.
+	left_col = ':' if any( r[0] for r in rows ) else ' '
+
+	# Add all rows to table
+	# - process left column and add color to it.
+	# - get right column from job if applicable.
+	table.add_rows( [[bcolor( r[0] + left_col, COLOR_COLUMN_LEFT ), jobs.out( r[1] )] for r in rows], False )
+
+	# Add colorized border & print table.
+	border = colored( '+', COLOR_BORDERS )
+	print '\n'.join( border + l + border for l in table.draw().splitlines() )
+
+def justify( content, mode ):
+	''' Returns content, justified against LINE_LENGTH
+		according to mode in [0 => left, 1 => center, 2 => right].
+	'''
+	if mode in (1, 2):
+		lines = content.splitlines()
+
+		# Compute max width.
+		max_width = max( len( l ) for l in lines )
+
+		if max_width < LINE_LENGTH:
+			# Compute repeat.
+			repeat = ' ' * ceil_div( LINE_LENGTH - max_width, 3 - mode )
+			# Adjust text.
+			content = '\n'.join( repeat + l for l in lines )
+
+	return content
+
+"""
+Logic:
+"""
+
+if DEBUG:
+	APT_REPORT		= False
+	HOST_IP_PUBLIC	= False
+
+def call( args ):
+	''' Calls a process determined by args and returns stdout. '''
+	import subprocess
+	return subprocess.Popen( args, stdout = subprocess.PIPE ).communicate()[0].strip()
+
+def err( msg, cond = True ):
+	import sys
+	if cond:
+		sys.stderr.write( msg )
+		p( msg, COLOR_CRITICAL, True )
+		sys.exit( -1 )
+
+def ceil_div( a, b ):
+	''' Integer division with ceil. '''
+	return -(-a // b)
+
+def banner_newlines():
+	''' Returns newlines for banner. '''
+	return '\n' * BANNER_PAD_NL
+
+def banner():
+	''' Returns a figlet banner according to customizations. '''
+	import re
+	from random import randint, choice
+	from pyfiglet import Figlet
+
+	# Randomize font.
+	font = BANNER_FONTS[randint( 0, len( BANNER_FONTS ) - 1 )]
+
+	# Create figlet.
+	text = Figlet( font = font ).renderText( BANNER )
+
+	# Remove newlines before and after.
+	text = re.sub( "^\s+[\n\r]+", '', re.sub( "\s+[\n\r]+$", '', text ) )
+
+	# Justify text.
+	text = justify( text, BANNER_JUSTIFY )
+
+	# Colorize.
+	text =	colored( text, COLOR_BANNER, True ) if len( COLOR_BANNER ) == 1\
+			else ''.join( colored( c ) if c.isspace() else colored( c, choice( COLOR_BANNER ), True ) for c in text )
+
+	pad = banner_newlines()
+	return pad + text + pad
+
+def end():
+	''' Prints the end of the motd. '''
+	print banner_newlines(),
+
+def cowsay():
+	''' Returns cowsay, fortune, etc. '''
+	from os import walk
+	from random import choice
+	from collections import Iterable
+
+	COWSAY_MODE = 0
+
+	# Pick cowsay or cowthink.
+	mode = choice( (0, 1) ) if COWSAY_MODE == 2 else COWSAY_MODE
+	say = ('cowsay', 'cowthink')[mode]
+
+	# Pick a fortune.
+	fortune = call( 'fortune' ) if COWSAY_FORTUNE else COWSAY_STATIC
+
+	def all_animals():
+		return call( ('cowsay', '-l') ).split( '\n', 1 )[1].split()
+
+	# Pick an animal.
+	animal = choice( all_animals() )  if COWSAY_ANIMALS == 'all' else\
+			 choice( COWSAY_ANIMALS ) if isinstance( COWSAY_ANIMALS, Iterable ) else\
+			 'default'
+
+	# Get cowsay.
+	content = call( (say, '-f', animal, fortune) )
+
+	# Justify it.
+	content = justify( content, COWSAY_JUSTIFY )
+
+	# Find border:
+	mid_sep = [('(', ')')] if mode else (('/', '\\'), ('|', '|'), ('\\', '/'), ('<', '>'))
+	bubble	= 'o' if mode else '\\'
+	lines	= content.splitlines()
+	le		= enumerate( lines )
+	border	= []
+
+	def find_pair( haystack, needle ):
+		''' Finds a pair in haystack given by 2-tuple needle, -1 if pair not found. '''
+		first = haystack.find( needle[0] )
+		if first == -1: return -1
+		else:
+			second = haystack.rfind( needle[1], first )
+			return -1 if second == -1 else (first, second)
+
+	def append( mode, i, pair ):
+		''' Appends (mode, i, pair) to border. '''
+		border.append( (mode, i, pair ) )
+
+	def find_append( e, needle ):
+		''' Finds pair in e and appends it to border. '''
+		append( 0, e[0], find_pair( e[1], needle ) )
+
+	# Find top + mid + bottom
+	find_append( le.next(), ('_', '_') )				# Find top border.
+	for i, l in le:										# Find all mid borders.
+		found = False
+		for sep in mid_sep:
+			f = find_pair( l, sep )
+			if f != -1: found = f; break
+		if found: append( 2, i, found )
+		else: find_append( (i, l), ('-', '-') ); break	# Find bottom border.
+
+	# Find "bubbles":
+	(i, l) = le.next()
+	start = l.find( bubble, 0 )
+	if start == -1:
+		next_i = i
+	else:
+		append( 1, i, (start, start + 1) )
+		start += 1
+		for i, l in le:
+			if l.find( bubble, start, start + 1 ) == -1: next_i = i; break
+			append( 1, i, (start, start + 1) )
+			start += 1
+			next_i = i + 1
+
+	# Colorize: borders, fortune, cowsay.
+	def borderize( m ):
+		''' Colorizes cowsay border. '''
+		return colored( m, COLOR_COWSAY_BORDER )
+
+	def cowsayize( m ):
+		''' Colorizes cowsay. '''
+		return colored( m, choice( COLOR_COWSAY ) )
+
+	def mid( line, s, e, mode ):
+		''' Colorizes cowsay border + fortune. '''
+		return	line[:s] + borderize( line[s:s + 1] )		+\
+				colored( line[s + 1:e], COLOR_FORTUNE ) 	+\
+				borderize( line[e:e + 1] ) + line[e + 1:]
+
+	def not_mid( line, s, e, cowsay ):
+		''' Colorizes top + bottom + bubbles. '''
+		l, c, r = line[:s], line[s:e + 1], line[e + 1:]
+		if cowsay: l, r = cowsayize( l ), cowsayize( r )
+		return l + borderize( c ) + r
+
+	mode_fn = (not_mid, not_mid, mid)
+	for i, b in enumerate( border ):
+		(mode, i_line, (s, e)) = b
+		lines[i_line] = mode_fn[mode]( lines[i_line], s, e, mode )
+
+	for i in xrange( next_i, len( lines ) ): lines[i] = cowsayize( lines[i] )
+
+	# We are done!
+	content = '\n' + '\n'.join( lines );
+
+	return content
+
+def up_time():
+	''' Returns uptime in human readable format. '''
+	from uptime import uptime
+	up = uptime()
+
+	if up is None:
+		err( 'Unable to determine uptime. Patches welcome.' )
+
+	parts = []
+	days, up = up // 86400, up % 86400
+	if days:
+		parts.append( '%d day%s' % (days, 's' if days != 1 else '') )
+
+	hours, up = up // 3600, up % 3600
+	if hours:
+		parts.append( '%d hour%s' % (hours, 's' if hours != 1 else '') )
+
+	minutes, up = up // 60, up % 60
+	if minutes:
+		parts.append( '%d minute%s' % (minutes, 's' if minutes != 1 else '') )
+
+	if up or not parts:
+		parts.append( '%.2f seconds' % up )
+
+	return ', '.join( parts ).strip()
+
+def boot_time():
+	''' Returns boot time in human readable format. '''
+	from uptime import boottime
+	return boottime().strftime( '%c' )
+
+def sys_time():
+	''' Returns loclal system time in human readable format. '''
+	import time
+	return time.asctime( time.localtime(time.time()) )
+
+def machine():
+	''' Returns dist, os, release, architecture in human readable format. '''
+	import platform
+	dist = ' '.join( x.capitalize() for x in platform.linux_distribution() ).strip()
+	return ', '.join( (dist, platform.system(), platform.release(), platform.architecture()[0]) ).strip()
+
+def root_usage():
+	''' Returns usage of /, e.g: `df /` in human readable format. '''
+	import psutil
+	usage = psutil.disk_usage( '/' ).percent
+	return ok_warn_crit( '{0}%'.format( usage ), usage, (ROOT_USAGE_WARN, ROOT_USAGE_CRITICAL) )
+
+def users():
+	''' Returns user sessions and count for each in human readable format. '''
+	import psutil
+	from collections import defaultdict
+	users = defaultdict( int )
+	for u in psutil.users(): users[u.name] += 1
+	return warn_if( ', '.join( '{0} ({1})'.format( user, count ) for user, count in users.items() ).strip(), 'root' in users )
+
+def curr_user():
+	''' Returns the current user. '''
+	import getpass
+	return getpass.getuser()
+
+def lastlog():
+	''' Returns the last logged in user and the time in human readable format. '''
+	import re
+	data = re.split( '\s{2,}', call( ('lastlog', '-u' + curr_user()) ).splitlines()[1] )
+	user = data[0]
+	time = data[len( data ) - 1].rsplit( ' ', 2  )
+	return time[0] + ' ' + time[2] + ' by ' + warn_if( user, user == 'root' )
+
+def memory():
+	''' Returns current memory usage in human readable format. '''
+	import psutil
+	m = psutil.virtual_memory()
+	d = [float( v ) / 1024 ** 3 for v in (m.total, m.used, m.free, m.cached) ]
+	msg = '{0}% | total: {1:.2f}, used: {2:.2f},\nfree: {3:.2f}, cached: {4:.2f}'\
+			.format( m.percent, d[0], d[1], d[2], d[3] )
+	return ok_warn_crit( msg, m.percent, [MEM_USAGE_WARN, MEM_USAGE_CRITICAL] )
+
+def swap():
+	''' Returns current swap usage in human readable format. '''
+	import psutil
+	m = psutil.swap_memory()
+	d = [float( v ) / 1024 ** 3 for v in (m.total, m.used, m.free) ]
+	msg = '{0}% | total: {1:.2f}, used: {2:.2f}, free: {3:.2f}'\
+			.format( m.percent, d[0], d[1], d[2] )
+	return ok_warn_crit( msg, m.percent, [MEM_USAGE_WARN, MEM_USAGE_CRITICAL] )
+
+def loadavg():
+	''' Returns load average in human readable format. '''
+	import os
+	return ', '.join( "%f" % x for x in os.getloadavg() ).strip()
+
+def num_processes():
+	''' Returns number of processes for everyone and current user in human readable format. '''
+	import psutil
+	total = 0
+	mine = 0
+	me = curr_user()
+	for p in psutil.process_iter():
+		total += 1
+		if p.username() == me:
+			mine += 1
+
+	return '{0} total running of which {1} are yours'.format( total, mine )
+
+def hostinfo():
+	''' Returns host info in human readable format. '''
+	import socket
+	import ipgetter
+
+	retr = []
+
+	public_host = 0
+
+	# Use ipgetter to retrieve public ip & hostname.
+	if HOST_IP_PUBLIC:
+		public_ip 	= ipgetter.myip()
+		public_host = socket.getfqdn( public_ip )
+		retr.append( ('hostname (public)', public_host) )
+		retr.append( ('address (public)', public_ip) )
+
+	# Use socket to retrieve internal ip & hostname.
+	if HOST_IP_FAST:
+		s = socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+		s.connect( HOST_IP_FAST_TESTIP )
+		fast_ip = s.getsockname()[0]
+		s.close()
+
+		fast_host = socket.getfqdn( fast_ip )
+
+		# Don't duplicate if public & internal are the same.
+		if fast_host != public_host:
+			retr.append( ('hostname (internal)', fast_host) )
+
+		retr.append( ('address (internal)', fast_ip) )
+
+	return retr
+
+def apt_reporter():
+	'''
+	Reports on apt updates.
+	1. Opens up the apt cache.
+	2. Does the equivalent of apt-get dist-upgrade.
+	3. Then the equivalent of apt-get upgrade.
+	4. Counts the possible packages which are marked to be installed or upgraded.
+	5. Reports, closes the cache and exits.
+	'''
+
+	class OpNullProgress( object ):
+		'''apt progress handler which supresses any output.'''
+		def update( self ):
+			pass
+		def done( self ):
+			pass
+
+	def is_security_upgrade( pkg ):
+		'''
+		Checks to see if a package comes from a DISTRO-security source.
+		'''
+		DISTRO = call( ("lsb_release", "-c", "-s") )
+		security_package_sources = [("Ubuntu", "%s-security" % DISTRO),
+								   ("Debian", "%s-security" % DISTRO)]
+
+		for (file, index) in pkg.file_list:
+			for origin, archive in security_package_sources:
+				if (file.archive == archive and file.origin == origin):
+					return True
+		return False
+
+	import apt_pkg
+
+	# init apt and config
+	apt_pkg.init()
+
+	# open the apt cache
+	try:
+		cache = apt_pkg.Cache( OpNullProgress() )
+	except SystemError, e:
+		err( "Error: Opening the cache (%s)" % e )
+
+	# setup a DepCache instance to interact with the repo
+	depcache = apt_pkg.DepCache( cache )
+
+	# take into account apt policies
+	depcache.read_pinfile()
+
+	# initialise it
+	depcache.init()
+
+	# give up if packages are broken
+	err( "Error: Broken packages exist.", depcache.broken_count > 0 )
+
+	# mark possible packages
+	try:
+		# run distro-upgrade
+		depcache.upgrade( True )
+		# reset if packages get marked as deleted -> we don't want to break anything
+		if depcache.del_count > 0:
+			depcache.init()
+
+		# then a standard upgrade
+		depcache.upgrade()
+	except SystemError, e:
+		err( "Error: Couldn't mark the upgrade (%s)" % e )
+
+	# run around the packages
+	upgrades = 0
+	security_upgrades = 0
+	for pkg in cache.packages:
+		candidate = depcache.get_candidate_ver( pkg )
+		current = pkg.current_ver
+
+		# skip packages not marked as upgraded/installed
+		if not (depcache.marked_install( pkg ) or depcache.marked_upgrade( pkg )):
+			continue
+
+		# increment the upgrade counter
+		upgrades += 1
+
+		# keep another count for security upgrades
+		if is_security_upgrade( candidate ):
+			security_upgrades += 1
+
+		# double check for security upgrades masked by another package
+		for version in pkg.version_list:
+			if (current and apt_pkg.version_compare( version.ver_str, current.ver_str ) <= 0):
+				continue
+			if is_security_upgrade( version ):
+				security_upgrades += 1
+				break
+
+	return [
+		['', warn_if( "upgrades to install: " + str( upgrades ), upgrades > 0, COLOR_OK ) ],
+		['', critical_if( "security upgrades to install: " + str( security_upgrades ), security_upgrades > 0, COLOR_OK ) ]
+	] if APT_NONE_DISPLAY else [
+		['', warn( "upgrades to install: " + str( upgrades ) ) ] if upgrades > 0 else [],
+		['', critical( "security upgrades to install: " + str( security_upgrades ) ) ] if security_upgrades > 0 else []
+	] if (upgrades + security_upgrades > 0) else []
+
+"""
+Jobs executor (parallellization):
+"""
+
+class jobs_executor( object ):
+	def process( self, jobs ):
+		''' Processes the given jobs in another process.
+			Value is retrieved with out( job )
+		'''
+		from concurrent.futures import ProcessPoolExecutor, as_completed
+		executor = ProcessPoolExecutor()
+		self.futures = {j: executor.submit( j ) for j in jobs}
+		return self
+
+	def out( self, job ):
+		''' Blocks the given job and returns its value.
+			If not processed prior, the value job is returned.
+		'''
+		from collections import Hashable
+		from inspect import isfunction
+		from concurrent.futures import as_completed
+		return as_completed( [self.futures[job]] ).next().result() if isinstance( job, Hashable ) and job in self.futures else job
+
+"""
+Execute all jobs:
+"""
+jobs_todo = [
+	banner, cowsay,
+	up_time, boot_time, sys_time,
+	machine, root_usage, users, lastlog, memory, swap, loadavg, num_processes,
+	hostinfo
+]
+if APT_REPORT: jobs_todo.append( apt_reporter )
+
+jobs = jobs_executor().process( jobs_todo )
+
+"""
+Print it all out:
+"""
+print jobs.out( banner )
+
+table( 'Time', jobs, [
+	['uptime', up_time],
+	['booted on', boot_time],
+	['system time', sys_time]
+] )
+table( 'System Info', jobs, [
+	['system', machine],
+	['usage of /', root_usage],
+	['sshd sessions', users],
+	['last login', lastlog],
+	['memory usage (GB)', memory],
+	['swap usage (GB)', swap],
+	['load average', loadavg],
+	['#processes', num_processes]
+] )
+table( 'Host & IP', jobs, hostinfo )
+
+if APT_REPORT: table( 'Apt Upgrades?', jobs, apt_reporter )
+
+header( 'Rules' )
+
+print jobs.out( cowsay )
+
+end()
