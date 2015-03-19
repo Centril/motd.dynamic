@@ -57,6 +57,8 @@ cd motd.dynamic
 chmod +x motd.dynamic
 ```
 
+This installs it to `/opt/motd.dynamic`, but the choice is yours.
+
 ##### 3 - Configure & Edit [`motd.dynamic`] with your favourite editor.
 ```shell
 nano motd.dynamic
@@ -65,7 +67,17 @@ nano motd.dynamic
 ##### 4 - Add script to `/etc/profile`.
 
 ```shell
- echo /opt/motd.dynamic/motd.dynamic | sudo tee -a /etc/profile
+echo /opt/motd.dynamic/motd.dynamic | sudo tee -a /etc/profile
+```
+
+##### 5 - Remove Last Login & Motd from sshd logins.
+
+Find `PrintMotd` and `PrintLastLog`, set them both to `no`.
+Then restart `sshd`
+
+```shell
+sudo nano /etc/ssh/sshd_config
+/etc/init.d/ssh restart
 ```
 
 ## Deciding on a figlet font:
