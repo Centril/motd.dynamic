@@ -431,7 +431,7 @@ def boot_time():
 	return boottime().strftime( '%c' )
 
 def sys_time():
-	''' Returns loclal system time in human readable format. '''
+	''' Returns local system time in human readable format. '''
 	import time
 	return time.asctime( time.localtime(time.time()) )
 
