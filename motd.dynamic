@@ -417,11 +417,8 @@ def mail():
 	import time
 	mailbox = '/var/spool/mail/' + curr_user()
 
-	def d( content, color = COLOR_NORMAL ):
-		return colored( justify( content, 1 ) + '\n', color )
-
-	def none():
-		return d( 'No new mail' ) if MAIL_NONE_DISPLAY else ''
+	def d( content, color = COLOR_NORMAL ): return colored( justify( content, 1 ) + '\n', color )
+	def none(): return d( 'No new mail' ) if MAIL_NONE_DISPLAY else ''
 
 	if not os.path.isfile( mailbox ): return none()
 
@@ -453,24 +450,19 @@ def up_time():
 	from uptime import uptime
 	up = uptime()
 
-	if up is None:
-		err( 'Unable to determine uptime. Patches welcome.' )
+	if up is None: err( 'Unable to determine uptime. Patches welcome.' )
 
 	parts = []
 	days, up = up // 86400, up % 86400
-	if days:
-		parts.append( '%d day%s' % (days, 's' if days != 1 else '') )
+	if days: parts.append( '%d day%s' % (days, 's' if days != 1 else '') )
 
 	hours, up = up // 3600, up % 3600
-	if hours:
-		parts.append( '%d hour%s' % (hours, 's' if hours != 1 else '') )
+	if hours: parts.append( '%d hour%s' % (hours, 's' if hours != 1 else '') )
 
 	minutes, up = up // 60, up % 60
-	if minutes:
-		parts.append( '%d minute%s' % (minutes, 's' if minutes != 1 else '') )
+	if minutes: parts.append( '%d minute%s' % (minutes, 's' if minutes != 1 else '') )
 
-	if up or not parts:
-		parts.append( '%.2f seconds' % up )
+	if up or not parts: parts.append( '%.2f seconds' % up )
 
 	return ', '.join( parts ).strip()
 
@@ -548,8 +540,7 @@ def num_processes():
 	me = curr_user()
 	for p in psutil.process_iter():
 		total += 1
-		if p.username() == me:
-			mine += 1
+		if p.username() == me: mine += 1
 
 	return '{0} total running of which {1} are yours'.format( total, mine )
 
@@ -579,8 +570,7 @@ def hostinfo():
 		fast_host = socket.getfqdn( fast_ip )
 
 		# Don't duplicate if public & internal are the same.
-		if fast_host != public_host:
-			retr.append( ('hostname (internal)', fast_host) )
+		if fast_host != public_host: retr.append( ('hostname (internal)', fast_host) )
 
 		retr.append( ('address (internal)', fast_ip) )
 
