@@ -30,7 +30,7 @@ Configurations:
 """
 
 # Set this to false when you're done - DEBUG disables HOST_IP_PUBLIC & APT_REPORT.
-DEBUG				=	False
+DEBUG				=	True
 
 # Line length for tables & headers.
 LINE_LENGTH			=	73
@@ -47,6 +47,7 @@ BANNER_JUSTIFY		=	1
 
 # Randomize a fortune, precendence over COWSAY_STATIC.
 COWSAY_FORTUNE		=	True
+COWSAY_BINS			=	'/usr/games/'
 # Use a static cowsay.
 COWSAY_STATIC		=	''
 # Mode? 0 => cowsay, 1 = cowthink, 2 = randomize both.
@@ -57,6 +58,35 @@ COWSAY_MODE			=	2
 COWSAY_ANIMALS		=	'all'
 # Justification of cowsay, 0 for left, 1 for center, 2 for right.
 COWSAY_JUSTIFY		=	2
+
+# Display notice when no mail?
+MAIL_NONE_DISPLAY	=	True
+# Display how many new mails, not just that there were new mails.
+MAIL_NEW_COUNT		=	True
+# Consider the mail read after displaying the motd.
+MAIL_CONSIDER_READ	=	False
+
+# When to use warning color for root usage (`df /`).
+ROOT_USAGE_WARN		=	60
+# When to use critical color for root usage (`df /`).
+ROOT_USAGE_CRITICAL	=	80
+
+# When to use warning color for memory usage %.
+MEM_USAGE_WARN		=	60
+# When to use critical color for memory usage %.
+MEM_USAGE_CRITICAL	=	80
+
+# Set to False if you don't want to get hostname & ip from ipgetter (external ip), can be a bit slow.
+HOST_IP_PUBLIC		=	True
+# Set to False if you don't want to use socket to retrieve hostname & ip (internal if behind an internal proxy).
+HOST_IP_FAST		=	True
+# The ip to test against, 8.8.8.8 is google DNS, assumes internet access.
+HOST_IP_FAST_TESTIP	=	('8.8.8.8', 80 )
+
+# Set to False if you think APT upgrades reporting takes too long.
+APT_REPORT			=	True
+# Set to False if you want apt_report not to display if no upgrades.
+APT_NONE_DISPLAY	=	True
 
 # Various color settings, they are all semantic.
 # Color for OK status.
@@ -81,28 +111,6 @@ COLOR_BORDERS		=	'cyan'
 COLOR_COLUMN_LEFT	=	'magenta'
 # Color of other stuff.
 COLOR_NORMAL		=	'white'
-
-# When to use warning color for root usage (`df /`).
-ROOT_USAGE_WARN		=	60
-# When to use critical color for root usage (`df /`).
-ROOT_USAGE_CRITICAL	=	80
-
-# When to use warning color for memory usage %.
-MEM_USAGE_WARN		=	60
-# When to use critical color for memory usage %.
-MEM_USAGE_CRITICAL	=	80
-
-# Set to False if you don't want to get hostname & ip from ipgetter (external ip), can be a bit slow.
-HOST_IP_PUBLIC		=	True
-# Set to False if you don't want to use socket to retrieve hostname & ip (internal if behind an internal proxy).
-HOST_IP_FAST		=	True
-# The ip to test against, 8.8.8.8 is google DNS, assumes internet access.
-HOST_IP_FAST_TESTIP	=	('8.8.8.8', 80 )
-
-# Set to False if you think APT upgrades reporting takes too long.
-APT_REPORT			=	True
-# Set to False if you want apt_report not to display if no upgrades.
-APT_NONE_DISPLAY	=	True
 
 """
 Coloring & display utilities:
@@ -164,14 +172,13 @@ def ok_warn_crit( msg, level, thresh ):
 def header( title ):
 	''' Prints a header. '''
 	from operator import xor
-	from itertools import repeat
 
 	title = ' ' + title + ' '
 
 	def pad( left = True, adjust = 0 ):
 		''' Returns a colored padding. '''
 		c = ('', ':') if left else (':', '')
-		pad = ''.join( repeat( '+', ceil_div( LINE_LENGTH - 2 - len( title ), 2 ) - adjust ) )
+		pad = '+' * (ceil_div( LINE_LENGTH - 2 - len( title ), 2 ) - adjust)
 		return colored( c[0] + pad + c[1], COLOR_BORDERS )
 
 	# Compute right adjustment.
@@ -179,6 +186,10 @@ def header( title ):
 
 	# Return the header.
 	p( pad() + colored( title, COLOR_HEADER ) + pad( False, right_adjust ) )
+
+def endtables():
+	''' Ends all tables with a line. '''
+	print colored( '+' * LINE_LENGTH, COLOR_BORDERS)
 
 def table( head, jobs, rows ):
 	''' Prints a table. '''
@@ -300,13 +311,13 @@ def cowsay():
 
 	# Pick cowsay or cowthink.
 	mode = choice( (0, 1) ) if COWSAY_MODE == 2 else COWSAY_MODE
-	say = ('cowsay', 'cowthink')[mode]
+	say = COWSAY_BINS + ('cowsay', 'cowthink')[mode]
 
 	# Pick a fortune.
-	fortune = call( 'fortune' ) if COWSAY_FORTUNE else COWSAY_STATIC
+	fortune = call( COWSAY_BINS + 'fortune' ) if COWSAY_FORTUNE else COWSAY_STATIC
 
 	def all_animals():
-		return call( ('cowsay', '-l') ).split( '\n', 1 )[1].split()
+		return call( ( say, '-l') ).split( '\n', 1 )[1].split()
 
 	# Pick an animal.
 	animal = choice( all_animals() )  if COWSAY_ANIMALS == 'all' else\
@@ -398,6 +409,44 @@ def cowsay():
 	content = '\n' + '\n'.join( lines );
 
 	return content
+
+def mail():
+	# See https://tools.ietf.org/html/rfc4155
+	import os
+	import os.path
+	import time
+	mailbox = '/var/spool/mail/' + curr_user()
+
+	def d( content, color = COLOR_NORMAL ):
+		return colored( justify( content, 1 ) + '\n', color )
+
+	def none():
+		return d( 'No new mail' ) if MAIL_NONE_DISPLAY else ''
+
+	if not os.path.isfile( mailbox ): return none()
+
+	stat = os.stat( mailbox )
+	if stat.st_mtime > stat.st_atime:
+		# mailbox has been modified after accessed.
+		if MAIL_NEW_COUNT:
+			# check how many new mails.
+			count = 0
+			newlines = 2
+
+			for l in open( mailbox ):
+				if l.isspace(): newlines += 1
+				else:
+					# New == We have a From header the date > atime.
+					if newlines == 2 and l.startswith( 'From ' ) and time.mktime( time.strptime( l.split( None, 2 )[2].strip() ) ):
+						count += 1
+					newlines = 0
+
+			# open() will change access time, correct it.
+			os.utime( mailbox, (time.time(), stat.st_mtime) if MAIL_CONSIDER_READ else (stat.st_atime, stat.st_mtime) )
+
+			return d( 'You have {0} new mails'.format( count ), COLOR_WARN ) if count else none()
+		else: return d( 'You have new mail', COLOR_WARN )
+	else: return none()
 
 def up_time():
 	''' Returns uptime in human readable format. '''
@@ -661,11 +710,14 @@ class jobs_executor( object ):
 		from concurrent.futures import as_completed
 		return as_completed( [self.futures[job]] ).next().result() if isinstance( job, Hashable ) and job in self.futures else job
 
+	def p( self, job ):
+		print self.out( job )
+
 """
 Execute all jobs:
 """
 jobs_todo = [
-	banner, cowsay,
+	banner, cowsay, mail,
 	up_time, boot_time, sys_time,
 	machine, root_usage, users, lastlog, memory, swap, loadavg, num_processes,
 	hostinfo
@@ -677,7 +729,8 @@ jobs = jobs_executor().process( jobs_todo )
 """
 Print it all out:
 """
-print jobs.out( banner )
+jobs.p( banner )
+jobs.p( mail )
 
 table( 'Time', jobs, [
 	['uptime', up_time],
@@ -698,8 +751,8 @@ table( 'Host & IP', jobs, hostinfo )
 
 if APT_REPORT: table( 'Apt Upgrades?', jobs, apt_reporter )
 
-header( 'Rules' )
+endtables()
 
-print jobs.out( cowsay )
+jobs.p( cowsay )
 
 end()
